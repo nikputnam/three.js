@@ -74,14 +74,15 @@
 
 
 			const params = {
-				facet: true,
+				facet: false,
 				n_facets: 9,
 				twist: 0.0, 
 				puff: 0.0, 
-				uniform: true,
+				squash: 1.0, 
+				uniform: false,
 				tension: 0.5,
-				centripetal: true,
-				chordal: true,
+				centripetal: false,
+				chordal: false,
 				addPoint: addPoint,
 				removePoint: removePoint,
 				exportSpline: exportSpline
@@ -103,7 +104,7 @@
 			let cubeCamera, cubeRenderTarget;
 
 
-			function sor( spline ) {
+			function sor( spline, squash ) {
 				return function( u, v, pt ) {
 					//console.log(spline);
 				//	console.log(u,v,pt);
@@ -115,7 +116,7 @@
 					let y = point.y;
 					pt.x = r*Math.cos( v* Math.PI *2.0) ;
 					pt.y = y;
-					pt.z = r*Math.sin( v* Math.PI *2.0);
+					pt.z = squash*r*Math.sin( v* Math.PI *2.0);
 				}
 			}
 
@@ -131,13 +132,19 @@
 
 			const logger = document.getElementById('overlay');
 
-
+			function min(x,y,z) {
+				if (x<=y && x<=z) {return x;}
+				if (y<=x && y<=z) {return y;}
+				return z;
+			}
 
 			function facet( surf, n_facets, twist, puff ) {
 
 				return function(u, v0, pt) {
-					const v = v0 ;
-					const phase = ( (v+u*twist) * n_facets)%1;
+				//	const pufff = 1.0/( ( 1+Math.exp(-30.0*(u-0.1)) )*(1+Math.exp(-30.0*(-u+0.9))) ) //min(1,10*u,10*(1-u)) ;
+					const pufff = (1-Math.exp(-u*20.0))*(1-Math.exp((-1+u)*20.0)); //min(1,10*u,10*(1-u)) ;
+					const v = v0 + u*twist ;
+					const phase = ( (v0) * n_facets)%1;
 					const deltav = phase / n_facets;
 					//const va =  (1.0/n_facets)* (     Math.floor( v * n_facets )) - ((u*twist)%1) ;
 					//const vb =  (1.0/n_facets)* ( 1.0+Math.floor( v * n_facets )) - ((u*twist)%1) ;
@@ -148,9 +155,9 @@
 					surf(u,va,point1);
 					surf(u,vb,point2);
 					surf(u,v ,point3);
-					pt.x = point3.x - (puff-1)*( point1.x + f*( point2.x - point1.x ) - point3.x);
-					pt.y = point3.y - (puff-1)*( point1.y + f*( point2.y - point1.y ) - point3.y);
-					pt.z = point3.z - (puff-1)*( point1.z + f*( point2.z - point1.z ) - point3.z);
+					pt.x = point3.x - pufff*(puff-1)*( point1.x + f*( point2.x - point1.x ) - point3.x);
+					pt.y = point3.y - pufff*(puff-1)*( point1.y + f*( point2.y - point1.y ) - point3.y);
+					pt.z = point3.z - pufff*(puff-1)*( point1.z + f*( point2.z - point1.z ) - point3.z);
 //					pt.y = point1.y + f*( point2.y - point1.y );
 //					pt.z = point1.z + f*( point2.z - point1.z );
 
@@ -259,6 +266,13 @@
 					updateSplineOutline();
 					render();
 
+				} );			
+				gui.add( params, 'squash', 0.1, 10.0 ).step( 0.01 ).onChange( function ( value ) {
+
+				//	splines.uniform.tension = value;
+					updateSplineOutline();
+					render();
+
 				} );
 				gui.add( params, 'puff', -10, 10 ).step( 0.1 ).onChange( function ( value ) {
 
@@ -350,9 +364,9 @@
 
 				surface.spline = curve.clone();
 
-				let fn =  sor(curve);
+				let fn =  sor(curve, params.squash);
 				if (params.facet == true) { //log("faceting on", fn); 
-					fn = facet(sor(curve), params.n_facets, params.twist , params.puff );  }
+					fn = facet(sor(curve, params.squash), params.n_facets, params.twist , params.puff );  }
 				surface.geometry = new ParametricGeometry( fn , ARC_SEGMENTS, ANGLE_SEGMENTS );
 				surface.mesh = new THREE.Mesh( surface.geometry,  new THREE.MeshBasicMaterial( { color: 0x00ff00 } ) ); 
 
@@ -376,10 +390,10 @@
 				
 
 				load(
-					[new THREE.Vector3(289.76843686945404, 0.0, 0),
-	new THREE.Vector3(369.74486357746554, 215.78300123982206, 0),
-	new THREE.Vector3(404.973134775788, 387.5573435578977, 0),
-	new THREE.Vector3(407.32255687801137, 760.0232995326772, 0)]
+					[new THREE.Vector3(289.76843686945404, 0, 0),
+	new THREE.Vector3(414.91846107193595, 191.8845958690277, 0),
+	new THREE.Vector3(449.8551731144292, 466.07527141050946, 0),
+	new THREE.Vector3(445.835534762008, 698.9204108718246, 0)]
 				);	
 			
 
@@ -471,10 +485,10 @@
 				//console.log( "spline:", surface.spline );
 
 
-				let fn =  sor(surface.spline);
+				let fn =  sor(surface.spline, params.squash);
 				if (params.facet == true) { 
 					//log("faceting on: ", fn); 
-					fn = facet(sor(surface.spline), params.n_facets, params.twist, params.puff  ) ;
+					fn = facet(sor(surface.spline, params.squash), params.n_facets, params.twist, params.puff  ) ;
 					//log("faceting on:- ", fn); 
 
 				}
