@@ -29,7 +29,7 @@
 		<script type="importmap">
 			{
 				"imports": {
-					"three": "../build/three.module.js"
+					"three": "./build/three.module.js"
 				}
 			}
 		</script>
@@ -43,6 +43,7 @@
 			import { OrbitControls } from './jsm/controls/OrbitControls.js';
 			import { TransformControls } from './jsm/controls/TransformControls.js';
 			import { ParametricGeometry } from './jsm/geometries/ParametricGeometry.js';
+			import { OBJExporter } from './jsm/exporters/OBJExporter.js';
 
 			import { RGBELoader } from './jsm/loaders/RGBELoader.js';
 
@@ -65,13 +66,11 @@
 			const geometry = new THREE.BoxGeometry( 50, 50, 50 );
 			let transformControl;
 
-			const ARC_SEGMENTS = 200;
-			const ANGLE_SEGMENTS = 200;
+			const ARC_SEGMENTS = 40;
+			const ANGLE_SEGMENTS = 90;
 
 			const splines = {};
-			const surface = {};
-
-
+			let surface = {};
 
 			const params = {
 				facet: false,
@@ -85,7 +84,9 @@
 				chordal: false,
 				addPoint: addPoint,
 				removePoint: removePoint,
-				exportSpline: exportSpline
+				exportSpline: exportSpline,
+				exportToObj: exportToObj
+
 			};
 
 			const surface_material = new THREE.MeshStandardMaterial( { //color: 0xaaaaaa,
@@ -130,6 +131,7 @@
 				
 			}
 
+
 			const logger = document.getElementById('overlay');
 
 			function min(x,y,z) {
@@ -165,6 +167,36 @@
 
 			}
 				
+
+
+			function exportToObj() {
+
+				const exporter = new OBJExporter();
+				const result = exporter.parse( surface.mesh );
+				saveString( result, 'object.obj' );
+
+			}
+
+			const link = document.createElement( 'a' );
+			link.style.display = 'none';
+			document.body.appendChild( link );
+
+			function save( blob, filename ) {
+
+				link.href = URL.createObjectURL( blob );
+				link.download = filename;
+				link.click();
+
+			}
+
+
+			function saveString( text, filename ) {
+
+				save( new Blob( [ text ], { type: 'text/plain' } ), filename );
+
+			}
+
+
 			init();
 
 			function init() {
@@ -295,6 +327,11 @@
 				gui.add( params, 'addPoint' );
 				gui.add( params, 'removePoint' );
 				gui.add( params, 'exportSpline' );
+
+				let h = gui.addFolder( 'Export' );
+				h.add( params, 'exportToObj' ).name( 'Export OBJ' );
+
+
 				gui.close();
 
 				// Controls
@@ -391,9 +428,9 @@
 
 				load(
 					[new THREE.Vector3(289.76843686945404, 0, 0),
-	new THREE.Vector3(414.91846107193595, 191.8845958690277, 0),
-	new THREE.Vector3(449.8551731144292, 466.07527141050946, 0),
-	new THREE.Vector3(445.835534762008, 698.9204108718246, 0)]
+					new THREE.Vector3(414.91846107193595, 191.8845958690277, 0),
+					new THREE.Vector3(449.8551731144292, 466.07527141050946, 0),
+					new THREE.Vector3(445.835534762008, 698.9204108718246, 0)]
 				);	
 			
 
@@ -516,7 +553,17 @@
 
 				console.log( strplace.join( ',\n' ) );
 				const code = '[' + ( strplace.join( ',\n\t' ) ) + ']';
-				prompt( 'copy and paste code', code );
+				let ppp = {};
+				ppp.facet = params.facet;
+				ppp.n_facets = params.n_facets;
+				ppp.points = splineHelperObjects.map( x => ({ x: x.position.x , y: x.position.y }) ) ;
+				ppp.puff = params.puff;
+				ppp.squash = params.squash;
+				ppp.twist = params.twist;
+				ppp.npoints = ppp.points.length;
+				
+
+				prompt( 'copy and paste code',JSON.stringify( ppp ) );
 
 			}
 
@@ -590,7 +637,8 @@
 				onUpPosition.y = event.clientY;
 
 				//if ( onDownPosition.distanceTo( onUpPosition ) === 0 ) transformControl.detach();
-
+				console.log(params)
+				console.log( splineHelperObjects.map( x => ({ x: x.position.x , y: x.position.y }) ) )
 			}
 
 			function onPointerMove( event ) {
