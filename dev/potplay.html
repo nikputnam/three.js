@@ -18,8 +18,16 @@
 	<body>
 
 		<div id="container">
-			<div id="overlay"></div>
+			<div id="overlay">
+			</div>
 		</div>
+
+		<div id="info">
+			<a href="https://www.instagram.com/nik.ceramics/" target="_blank" rel="noopener">@nik.ceramics</a>
+			2021
+	    </div>
+
+
 		
 
 		<!-- Import maps polyfill -->
@@ -449,8 +457,12 @@
 
 				} else {
 
-					object.position.x = Math.random() * 1000 - 500;
-					object.position.y = Math.random() * 600;
+					var maxy = splineHelperObjects.map( x => x.position.y ).reduce(
+					(acc,val)=>{ if (val>acc) {return val} else {return acc} }, -100000.0
+				    );
+
+					object.position.x = Math.random() * 400 + 100;
+					object.position.y = 1.1*maxy;
 					object.position.z = 0.0;
 
 				}
@@ -609,6 +621,9 @@
 
 			//	log("pointerdown",[onDownPosition,pointer])
 
+				console.log("maxy:", splineHelperObjects.map( x => x.position.y ).reduce(
+					(acc,val)=>{ if (val>acc) {return val} else {return acc} }, -100000.0
+				) )
 
 				raycaster.setFromCamera( pointer, camera );
 
