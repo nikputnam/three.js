@@ -81,6 +81,8 @@
 			let surface = {};
 
 			const params = {
+				bottom: false,
+				spiralize: false,
 				facet: false,
 				n_facets: 9,
 				twist: 0.0, 
@@ -93,17 +95,45 @@
 				addPoint: addPoint,
 				removePoint: removePoint,
 				exportSpline: exportSpline,
-				exportToObj: exportToObj
+				exportToObj: exportToObj,
+				exportGcode: exportGcode,
+
+				max_height: 100.0,
+				max_width: 100.0,
+				layer_height: 1.5,
+				line_width: 2.0
 
 			};
 
-			const surface_material = new THREE.MeshStandardMaterial( { //color: 0xaaaaaa,
+			function even_steps(spline,stepsize) {
+
+				
+
+			}
+
+
+			const surface_material = new THREE.MeshStandardMaterial( { 	
+					color: 0xaaaaaa,
 					roughness: 1.0,
 					metalness: 0.0 } 
 					);
 			surface_material.side = THREE.DoubleSide;
 
+			const bottom_material = new THREE.MeshStandardMaterial( { 	
+					color: 0x00aaaa,
+					roughness: 1.0,
+					metalness: 0.0 } 
+				);
+			bottom_material.side = THREE.DoubleSide;
+
+
 			const handle_material = new THREE.MeshStandardMaterial( { color: 0xff0000,
+					roughness: 1.0,
+					metalness: 0.0 } 
+					);
+			
+
+			const handle_material1 = new THREE.MeshStandardMaterial( { color: 0xff5500,
 					roughness: 1.0,
 					metalness: 0.0 } 
 					);
@@ -172,10 +202,282 @@
 //					pt.z = point1.z + f*( point2.z - point1.z );
 
 				}
+			}
+
+			function bbox() {
+
+				var fn =  sor(surface.spline, params.squash);
+				if (params.facet == true) { 
+					//log("faceting on: ", fn); 
+					fn = facet(sor(surface.spline, params.squash), params.n_facets, params.twist, params.puff  ) ;
+					//log("faceting on:- ", fn); 
+				}
+
+				const nu = surface.spline.points.length * 10
+				const nv = 60 
+
+				const du = 1.0/(nu-1)
+				const dv = 1.0/(nv-1)
+
+				const box = [...Array(nu).keys()].map( ui => ui*du).flatMap(
+					function(u) {
+						return [...Array(nv).keys()].map( vi => vi*dv).map( function(v){
+							var p = new THREE.Vector3(0,0,0)
+							fn(u,v,p)
+							return p
+						}
+						)
+					}
+
+				).reduce( function( range,p ) {
+					return( [
+					[ Math.min(p.x,range[0][0]), Math.max(p.x,range[0][1]) ],
+					[ Math.min(p.y,range[1][0]), Math.max(p.y,range[1][1]) ],
+					[ Math.min(p.z,range[2][0]), Math.max(p.z,range[2][1]) ]
+				
+					] )
+				} ,[[1.0e6,-1.0e6],[1.0e6,-1.0e6],[1.0e6,-1.0e6]]  )
+				//console.log("bbox",box)
+				return box
+			}
+
+			function evenly_spaced_samples( spline, samples,l, n ) {
+				var times = []
+
+				var ds = l/(n-1)
+				var s = 0.0
+				var s0 = samples[0][0]
+				var i = 0
+				var j=0
+				var s0 = samples[j][1] 
+				var s1 = samples[j+1][1]
+				var t0 = samples[j][0] 
+				var t1 = samples[j+1][0] 
+				var dt = t1-t0
+				var ss = s1-s0
+				while (i<n) {
+					while ((j<(samples.length-2)) && samples[j+1][1]<s) {
+						j++; 
+						s0 = samples[j][1] 
+						s1 = samples[j+1][1]
+						t0 = samples[j][0] 
+						t1 = samples[j+1][0] 
+						dt = t1-t0
+						ss = s1-s0
+					}
+					const f = ( (s-s0)/ss )
+					const u = t0 + f*dt
+					//if (u>1.0) { console.log("u>1",i,s,u,j,samples.length,samples[j][0],samples[j][1], samples[j+1][0],samples[j+1][1]) }
+					times.push(u)
+					s += ds 
+					i++
+				}
+				return(times)
 
 			}
-				
 
+
+			function scale_factor() {
+				const box = bbox()
+
+				const height = Math.abs(box[1][1]-box[1][0])
+				const width = Math.max( Math.abs(box[0][1]-box[0][0]), Math.abs(box[2][1]-box[2][0]))
+				const height_scale = params.max_height / height 
+				const width_scale = params.max_width / width
+				const sf = Math.min( height_scale, width_scale ) 
+				return sf
+			}
+
+			/*
+
+				const scale_fact = scale_factor()
+				const length_samples = surface.spline.points.length * 10
+				const dt = 1.0/(length_samples-1)
+				const samples = [...Array(length_samples).keys()].map( x => x*dt).map(x => [x,surface.spline.getPoint(x)] )
+
+				const total_length = samples.reduce( function(acc,cv) {
+						var d = acc[1] +  cv[1].distanceTo( acc[0] ) 
+						return( [ cv[1], d ] ) 
+					}, [samples[0][1], 0.0]
+				)[1]
+
+				//const n_layers = Math.floor(total_length/(params.layer_height/scale_fact))
+
+			*/
+
+			function spiralPath(scale_fact) {
+				
+				const length_samples = surface.spline.points.length * 10
+				const dt = 1.0/(length_samples-1)
+				//console.log("dt=",dt)
+				const samples = [...Array(length_samples).keys()].map( x => x*dt).map(x => [x,surface.spline.getPoint(x)] )
+
+				const total_length = samples.reduce( function(acc,cv) {
+						var d = acc[1] +  cv[1].distanceTo( acc[0] ) 
+						return( [ cv[1], d ] ) 
+					}, [samples[0][1], 0.0]
+				)[1]
+				//console.log(total_length)
+				//console.log(samples)
+
+
+				const distances =  samples.reduce( function([ last_p, dv, last_d ],[t,p]) {
+						var dd = p.distanceTo( last_p )
+						var d = last_d + dd
+						dv.push( [t,d] )
+						return( [ p, dv, d ] ) 
+					}, [samples[0][1], [], 0.0 ]
+				)[1]
+
+
+				const n_layers = Math.floor(total_length/(params.layer_height/scale_fact))
+				const n_angular_steps = 100
+				const n = n_layers*n_angular_steps
+
+
+				//console.log(distances)
+				const tv = evenly_spaced_samples( surface.spline, distances,total_length, n )
+				//console.log("last tv:",tv.slice(-1))
+
+				const da = 1.0 / (n_angular_steps)
+				var i = 0.0
+				//console.log("da",da)
+			//	console.log("twist",params.twist)
+
+				let fn =  sor(surface.spline, params.squash);
+				if (params.facet == true) { 
+					//log("faceting on: ", fn); 
+					fn = facet(sor(surface.spline, params.squash), params.n_facets, params.twist, params.puff  ) ;
+					//log("faceting on:- ", fn); 
+				}
+
+				var p = new THREE.Vector3(0, 0, 0)
+
+				var points = tv.map( function(t) {
+					var v = i*da - params.twist*t 
+					i = i + 1
+					return( [t,v%1.0]  )
+				} ).map( function([u,v]) {
+					fn(u,v,p)
+					return p.clone()
+//					
+				} )
+
+				var sp = []
+				if (params.bottom) {
+					var p0 = new THREE.Vector3(0,0,0)
+
+					fn(0,0,p0)
+					var p1 = p0.clone()
+
+					p0.x = 0.0 
+					p0.z = 0.0
+
+					const r0 = p0.distanceTo(p1)
+					const lw = (params.line_width / scale_fact)
+					const turns = r0 / lw
+					const ns = Math.floor(turns * n_angular_steps )
+					const dtheta = 2*Math.PI / n_angular_steps
+					var theta = -(turns % 1.0)*2.0*Math.PI
+					var dr = r0 / ns
+					var r = 0
+					//console.log( "tail:",-lw*3*Math.sin(theta+Math.PI/2),p0.y, -lw*3*Math.cos(theta) )
+					const ptail = new THREE.Vector3( -lw*3*Math.sin(theta+Math.PI/2),p0.y, lw*3*Math.cos(theta+Math.PI/2) )
+					sp = [...Array(ns).keys()].map( x => x*dt).map(
+						function(x) {
+							var p = new THREE.Vector3( r*Math.cos(theta),p0.y,params.squash* r*Math.sin(theta) )
+							theta += dtheta
+							r += dr
+							return p
+						}
+					)
+					console.log("z")
+					points = [ptail].concat( sp.concat( points  ) )
+
+				}
+
+				return points
+
+			}
+
+			function exportGcode() {
+				const sf = scale_factor()
+				const box = bbox()
+				const miny = box[1][0]
+				const tx = 300 
+				const ty = 300
+				const tz = 11.5
+				const sppoints = spiralPath( scale_factor() ).map(function(p) { 
+					p.y -= miny
+					return p
+				}).map(function(p) { 
+					p.x *= sf; p.y *= sf; p.z *= sf; 
+					return p
+				}).map(function(p) { 
+					var w = p.y ; p.y = -p.z ; p.z = w; 
+					return p
+				}).map(function(p) { 
+					p.x += tx;  p.y += ty  ; p.z += tz
+					return p
+				})
+
+
+				//" "+p.x+" "+p.y+" "+p.z+"\n" //
+				var dd = 0
+				var lp = sppoints[0]
+				var gcode = sppoints.map(
+					function(p){ 
+					dd += 0.4 * p.distanceTo(lp)
+					var r = "G1 X"+p.x+" Y"+p.y+" Z"+p.z+" E"+dd+"\n" 
+					lp = p 
+					return r 
+				}
+				).reduce( (a,b)=>a+b , "")
+
+			//	console.log(points)
+//				const exporter = new OBJExporter();
+//G1 E{ext} F900
+
+				const footer = "G1 E"+(dd-0.5)+ " F900\n" + `G92 E0
+G91 ; set relative coordination
+G1 Z50 F300 ;move 5mm up with 300 speed
+G90 ; set absolute coordination
+G1 X200  F2400 ; home X axis
+`
+
+				const header = `M107
+;TYPE:Custom
+G28 ; home all axes
+
+
+G21 ; set units to millimeters
+G90 ; use absolute coordinates
+M82 ; use absolute distances for extrusion
+G92 E0
+; Filament gcode
+M107
+;LAYER_CHANGE
+;Z:1
+;HEIGHT:1
+G1 Z70 F9000
+G1 E-.3 F900
+G92 E0
+G1 E.4 F900
+M204 S150
+;TYPE:External perimeter
+;WIDTH:3
+G1 F3360
+`;
+				const result = header + "G1 X"+sppoints[0].x+" Y"+sppoints[0].y+"\n" + gcode + footer
+
+				saveString( result, randomID(5) + ".gcode" );
+
+			}
+
+			function randomID(n) {
+				const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjklmnpqrstuvwxyz23456789".split("")
+				return [...Array(n).keys()].map( x => chars[ Math.floor(Math.random() * chars.length) ] ).reduce( (a,b)=>a+b , "")
+			}
 
 			function exportToObj() {
 
@@ -285,6 +587,21 @@
 
 				const gui = new GUI();
 
+				gui.add( params, 'bottom' ).onChange( function ( value ) {
+					//splines.uniform.tension = value;
+					updateSplineOutline();
+					render();
+
+					} );
+
+				gui.add( params, 'spiralize' ).name( 'Show spiral toolpath' ).onChange( function ( value ) {
+					//splines.uniform.tension = value;
+					updateSplineOutline();
+					render();
+
+				} );
+
+
 				gui.add( params, 'facet' ).onChange( function ( value ) {
 
 					//splines.uniform.tension = value;
@@ -292,6 +609,8 @@
 					render();
 
 					} );
+
+
 				gui.add( params, 'n_facets', 3, 24 ).step( 1 ).onChange( function ( value ) {
 
 					//splines.uniform.tension = value;
@@ -307,7 +626,7 @@
 					render();
 
 				} );			
-				gui.add( params, 'squash', 0.1, 10.0 ).step( 0.01 ).onChange( function ( value ) {
+				gui.add( params, 'squash', 0.1, 1.0 ).step( 0.01 ).onChange( function ( value ) {
 
 				//	splines.uniform.tension = value;
 					updateSplineOutline();
@@ -338,6 +657,7 @@
 
 				let h = gui.addFolder( 'Export' );
 				h.add( params, 'exportToObj' ).name( 'Export OBJ' );
+				h.add( params, 'exportGcode' ).name( 'Export Gcode' );
 
 
 				gui.close();
@@ -449,7 +769,7 @@
 			function addSplineObject( position ) {
 
 //				const material = new THREE.MeshLambertMaterial( { color: Math.random() * 0xffffff } );
-				const object = new THREE.Mesh( geometry, handle_material );
+				const object = new THREE.Mesh( geometry, splineHelperObjects.length==0 ? handle_material1 : handle_material );
 
 				if ( position ) {
 
@@ -509,6 +829,7 @@
 			}
 
 			function updateSplineOutline() {
+				
 
 				for ( const k in splines ) {
 
@@ -548,7 +869,59 @@
 
 				surface.mesh.receiveShadow = true;
 
+
+
+				if (params.bottom == true) {
+					var p0 = new THREE.Vector3(0,0,0)
+					fn(0,0,p0)
+					p0.x = 0.0 
+					p0.z = 0.0
+					const n = 100 
+					const ds = 1.0/n
+					var points = [...Array(n).keys()].map( function(x){ var p = new THREE.Vector3(0,0,0); fn(0,x*ds,p);  return p } )
+					var positions = [...Array(n).keys()].flatMap( function(i){//
+						return [ p0, points[i], points[(i+1)%n] ]
+					} ) //.flatMap( p => [p.x,p.y,p.z])
+
+					var bgeom = new THREE.BufferGeometry().setFromPoints( positions )
+					bgeom.computeVertexNormals();
+					var bottom = new THREE.Mesh( bgeom ); 
+			//		console.log(bottom_material)
+				//	bottom.material.color.setHex(0xaaaaaa); 
+				
+					bottom.material = //.color.setHex(0xffff00); // = bottom_material
+						new THREE.MeshStandardMaterial( { 	
+						color: 0xaaaaaa,
+						roughness: 1.0,
+						metalness: 0.0 } 
+					);
+					bottom.material.side = THREE.DoubleSide;
+					bottom.receiveShadow = true;
+					bottom.material.needsUpdate=true
+					surface.mesh.add(bottom)
+
+				}
+
 				scene.add(surface.mesh);
+
+				if (params.spiralize) {
+					const line_material = new THREE.LineBasicMaterial( { color: 0x0000ff } );
+
+					const sppoints = spiralPath( scale_factor() )
+					var line_geometry = new THREE.BufferGeometry().setFromPoints( sppoints );
+					//points3D.vertices.push(sppoints)
+					//var spiral = new THREE.Geometry();
+					const line = new THREE.Line( line_geometry, line_material );
+					//var line2 = new THREE.Line(points3D, new THREE.LineBasicMaterial({color: "red"}));
+					surface.mesh.add(line);
+
+
+				}
+
+
+				renderer.render( scene, camera );
+			//	bbox()
+
 
 			}
 
