@@ -24,11 +24,8 @@
 
 		<div id="info">
 			<a href="https://www.instagram.com/nik.ceramics/" target="_blank" rel="noopener">@nik.ceramics</a>
-			2021
+			2021,2023
 	    </div>
-
-
-		
 
 		<!-- Import maps polyfill -->
 		<!-- Remove this when import maps will be widely supported -->
@@ -81,7 +78,7 @@
 			let surface = {};
 
 			const params = {
-				bottom: false,
+				bottom: true,
 				spiralize: false,
 				facet: false,
 				n_facets: 9,
@@ -94,14 +91,16 @@
 				chordal: false,
 				addPoint: addPoint,
 				removePoint: removePoint,
-				exportSpline: exportSpline,
+				exportJson: exportJson,
 				exportToObj: exportToObj,
 				exportGcode: exportGcode,
 
 				max_height: 100.0,
 				max_width: 100.0,
 				layer_height: 1.5,
-				line_width: 2.0
+				bed_height: 0.0,
+				line_width: 2.0,
+				user: "anon"
 
 			};
 
@@ -182,7 +181,9 @@
 
 				return function(u, v0, pt) {
 				//	const pufff = 1.0/( ( 1+Math.exp(-30.0*(u-0.1)) )*(1+Math.exp(-30.0*(-u+0.9))) ) //min(1,10*u,10*(1-u)) ;
-					const pufff = (1-Math.exp(-u*20.0))*(1-Math.exp((-1+u)*20.0)); //min(1,10*u,10*(1-u)) ;
+					//const pufff = (1-Math.exp(-u*20.0))*(1-Math.exp((-1+u)*20.0)); //min(1,10*u,10*(1-u)) ;
+                   // taper at bottom only
+					const pufff = (1-Math.exp(-u*10.0)); //min(1,10*u,10*(1-u)) ;
 					const v = v0 + u*twist ;
 					const phase = ( (v0) * n_facets)%1;
 					const deltav = phase / n_facets;
@@ -331,7 +332,7 @@
 
 
 				const n_layers = Math.floor(total_length/(params.layer_height/scale_fact))
-				const n_angular_steps = 100
+				const n_angular_steps = 1000
 				const n = n_layers*n_angular_steps
 
 
@@ -391,7 +392,7 @@
 							return p
 						}
 					)
-					console.log("z")
+					//console.log("z")
 					points = [ptail].concat( sp.concat( points  ) )
 
 				}
@@ -406,7 +407,7 @@
 				const miny = box[1][0]
 				const tx = 300 
 				const ty = 300
-				const tz = 11.5
+				const tz = params.bed_height + params.layer_height
 				const sppoints = spiralPath( scale_factor() ).map(function(p) { 
 					p.y -= miny
 					return p
@@ -444,11 +445,14 @@ G1 Z50 F300 ;move 5mm up with 300 speed
 G90 ; set absolute coordination
 G1 X200  F2400 ; home X axis
 `
+				var info = ";" + model_json() + "\n"
+				info += "; bed_height: " + params.bed_height + "\n"
+				info += "; layer_height: " + params.layer_height + "\n"
+				info += "; line_width: " + params.line_width + "\n"
 
 				const header = `M107
 ;TYPE:Custom
 G28 ; home all axes
-
 
 G21 ; set units to millimeters
 G90 ; use absolute coordinates
@@ -468,11 +472,19 @@ M204 S150
 ;WIDTH:3
 G1 F3360
 `;
-				const result = header + "G1 X"+sppoints[0].x+" Y"+sppoints[0].y+"\n" + gcode + footer
+				const result = info + header + "G1 X"+sppoints[0].x+" Y"+sppoints[0].y+"\n" + gcode + footer
 
-				saveString( result, randomID(5) + ".gcode" );
+				saveString( result, params.user + "_" + randomID(5) + ".gcode" );
 
 			}
+
+
+			function exportJson() {
+	
+				saveString( model_json() , params.user + "_" + randomID(5) + ".json" );
+
+			}
+
 
 			function randomID(n) {
 				const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjklmnpqrstuvwxyz23456789".split("")
@@ -483,7 +495,7 @@ G1 F3360
 
 				const exporter = new OBJExporter();
 				const result = exporter.parse( surface.mesh );
-				saveString( result, 'object.obj' );
+				saveString( result, params.user + "_" + randomID(5) + ".obj"  );
 
 			}
 
@@ -653,13 +665,36 @@ G1 F3360
 				*/
 				gui.add( params, 'addPoint' );
 				gui.add( params, 'removePoint' );
-				gui.add( params, 'exportSpline' );
 
 				let h = gui.addFolder( 'Export' );
+				h.add(params, 'user').name("Name (for labeling files):")
 				h.add( params, 'exportToObj' ).name( 'Export OBJ' );
 				h.add( params, 'exportGcode' ).name( 'Export Gcode' );
+				h.add( params, 'exportJson' ).name( 'Export JSON' );
+				h.close()
 
+				let prs = gui.addFolder( '(Expert) Printer Settings' );
+				prs.add( params, 'bed_height' , 0.0, 15.0 ).name( 'Bed Height' ).step(0.5);
+				prs.add( params, 'layer_height' , 0.0, 3.0 ).name( 'Layer Height' ).step(0.1).onChange( function ( value ) {
 
+				//	splines.uniform.tension = value;
+					if (params.spiralize) { 
+						updateSplineOutline();
+						render();
+					}
+
+				} );
+				prs.add( params, 'line_width' , 0.0, 3.0 ).name( 'Line Width' ).step(0.1).onChange( function ( value ) {
+
+					//	splines.uniform.tension = value;
+						if (params.spiralize) { 
+							updateSplineOutline();
+							render();
+						}
+
+					} );
+				//prs.add( params, 'layer_height' ).name( 'LayerHeight' );
+				prs.close();
 				gui.close();
 
 				// Controls
@@ -925,8 +960,7 @@ G1 F3360
 
 			}
 
-			function exportSpline() {
-
+			function model_json() {
 				const strplace = [];
 
 				for ( let i = 0; i < splinePointsLength; i ++ ) {
@@ -936,8 +970,8 @@ G1 F3360
 
 				}
 
-				console.log( strplace.join( ',\n' ) );
-				const code = '[' + ( strplace.join( ',\n\t' ) ) + ']';
+				//console.log( strplace.join( ',\n' ) );
+				//const code = '[' + ( strplace.join( ',\n\t' ) ) + ']';
 				let ppp = {};
 				ppp.facet = params.facet;
 				ppp.n_facets = params.n_facets;
@@ -946,11 +980,9 @@ G1 F3360
 				ppp.squash = params.squash;
 				ppp.twist = params.twist;
 				ppp.npoints = ppp.points.length;
-				
-
-				prompt( 'copy and paste code',JSON.stringify( ppp ) );
-
+				return JSON.stringify( ppp )
 			}
+
 
 			function load( new_positions ) {
 
@@ -977,12 +1009,10 @@ G1 F3360
 			}
 
 			function render() {
-
 				splines.uniform.mesh.visible = params.uniform;
 				splines.centripetal.mesh.visible = params.centripetal;
 				splines.chordal.mesh.visible = params.chordal;
 				renderer.render( scene, camera );
-
 			}
 
 			function onPointerDown( event ) {
@@ -992,12 +1022,12 @@ G1 F3360
 				pointer.x = ( event.clientX / window.innerWidth ) * 2 - 1;
 				pointer.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
 
-			//	log("pointerdown",[onDownPosition,pointer])
-
-				console.log("maxy:", splineHelperObjects.map( x => x.position.y ).reduce(
-					(acc,val)=>{ if (val>acc) {return val} else {return acc} }, -100000.0
-				) )
-
+				//	log("pointerdown",[onDownPosition,pointer])
+				/*
+					console.log("maxy:", splineHelperObjects.map( x => x.position.y ).reduce(
+						(acc,val)=>{ if (val>acc) {return val} else {return acc} }, -100000.0
+					) )
+				*/
 				raycaster.setFromCamera( pointer, camera );
 
 				const intersects = raycaster.intersectObjects( splineHelperObjects, false );
@@ -1025,8 +1055,8 @@ G1 F3360
 				onUpPosition.y = event.clientY;
 
 				//if ( onDownPosition.distanceTo( onUpPosition ) === 0 ) transformControl.detach();
-				console.log(params)
-				console.log( splineHelperObjects.map( x => ({ x: x.position.x , y: x.position.y }) ) )
+			//	console.log(params)
+	//			console.log( splineHelperObjects.map( x => ({ x: x.position.x , y: x.position.y }) ) )
 			}
 
 			function onPointerMove( event ) {
